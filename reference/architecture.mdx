@@ -1,0 +1,136 @@
+---
+title: "Architecture"
+description: "Monorepo structure, component roles, data model, and deployment layout"
+icon: "building"
+---
+
+## Monorepo Structure
+
+```
+openlinear/
+  apps/
+    desktop-ui/       Next.js frontend (rendered in Tauri webview)
+      components/     React components (board, task forms, overlays, settings)
+      hooks/          Custom hooks (SSE subscription, auth)
+      lib/            API client, utilities
+    api/              Cloud metadata API
+      src/
+        routes/       REST endpoints
+        services/     Business logic
+        middleware/   Auth middleware (JWT and PAT verification)
+    mcp/              Cloudflare Worker — MCP server
+    sidecar/          Local execution sidecar (bundled in Tauri desktop app)
+      src/
+        routes/       Execution routes (execute, cancel, opencode, batches, brainstorm)
+        services/     Execution logic (execution, opencode, batch, worktree, git-identity)
+  packages/
+    db/               Prisma schema + generated client
+      prisma/
+        schema.prisma
+```
+
+## Desktop App
+
+Built with Tauri (Rust shell wrapping the Next.js frontend). The sidecar binary (`openlinear-sidecar`) runs as a Tauri sidecar process alongside the desktop window, handling all execution locally.
+
+Key Tauri integrations:
+- `check_opencode` command: checks if the OpenCode binary exists on the system
+- `@tauri-apps/plugin-shell`: opens external links in the default browser
+- `@tauri-apps/plugin-os`: detects platform and architecture
+- Window controls: macOS-style traffic lights for close/minimize/maximize
+
+## Database
+
+PostgreSQL via Prisma ORM. Schema lives at `packages/db/prisma/schema.prisma`. Production uses Neon cloud PostgreSQL.
+
+### Models
+
+| Model | Description |
+|-------|-------------|
+| `Task` | Core work unit: title, description, priority, status, execution tracking, team/project association |
+| `Label` | Colored tag with name and priority ordering |
+| `TaskLabel` | Many-to-many join between tasks and labels |
+| `Settings` | Singleton config for execution behavior |
+| `User` | Authenticated user with optional GitHub access token |
+| `PersonalAccessToken` | PAT for MCP and API integrations (hash stored, not raw token) |
+| `Repository` | Connected GitHub repository (clone URL, default branch, active flag) |
+| `Team` | Team with key for issue numbering, members, color |
+| `TeamMember` | User membership in a team with role |
+| `Project` | High-level initiative with status, dates, lead, team associations |
+| `ProjectTeam` | Many-to-many join between projects and teams |
+
+### Enums
+
+| Enum | Values |
+|------|--------|
+| `Priority` | low, medium, high |
+| `Status` | todo, in_progress, done, cancelled |
+| `TeamRole` | owner, admin, member |
+| `ProjectStatus` | planned, in_progress, paused, completed, cancelled |
+
+## API
+
+The cloud API (`apps/api`) is an Express 5 server. It handles metadata only — no execution, no OpenCode. Routes are mounted under `/api/`:
+
+**Cloud API routes:**
+- `/api/auth` — GitHub OAuth and email/password login
+- `/api/pats` — personal access token management
+- `/api/repos` — repository management
+- `/api/tasks` — task CRUD and bulk creation
+- `/api/labels` — label CRUD and task-label associations
+- `/api/settings` — execution settings
+- `/api/teams` — team CRUD and membership
+- `/api/projects` — project CRUD
+- `/api/inbox` — completed task notifications
+- `/api/events` — SSE endpoint
+
+**Local Sidecar routes (`apps/sidecar`):**
+- `/api/tasks/:id/execute` — trigger task execution
+- `/api/tasks/:id/cancel` — cancel running execution
+- `/api/batches` — batch execution (parallel, queue, and combined modes)
+- `/api/opencode` — OpenCode management, provider auth, status
+- `/api/brainstorm` — AI task generation
+
+The sidecar imports the shared Express app via `@openlinear/api/app`, SSE utilities via `@openlinear/api/sse`, and auth middleware via `@openlinear/api/middleware`, then adds its execution routes on top.
+
+### Authentication
+
+Two middleware functions handle Bearer JWTs and PATs:
+- `optionalAuth` — extracts `userId` from a valid token when present
+- `requireAuth` — rejects missing or invalid tokens and can enforce PAT scopes
+
+The bulk task endpoint enforces `tasks:write` for PAT callers.
+
+## MCP Worker
+
+The MCP Worker (`apps/mcp`) exposes stateless Streamable HTTP at `/mcp`. Each request carries a PAT, and the worker forwards tool calls to the cloud API for workspace, project, label, and task operations. The bulk plan tool creates a project and expands phase tasks through `POST /api/tasks/bulk`.
+
+Deployed as a Cloudflare Worker with Node.js compatibility (`nodejs_compat` + `enable_nodejs_http_server_modules`). Express runs via the `httpServerHandler` bridge.
+
+See [MCP Integration](/integrations/mcp) for connection details and tool behavior.
+
+## Real-Time Communication
+
+Server-Sent Events at `GET /api/events`. Each connected client gets a unique ID. The `broadcast()` function sends events to all connected clients. Heartbeat every 30 seconds keeps connections alive. Authentication uses `?token=<jwt>` query parameter (SSE can't set request headers).
+
+See [Real-Time Events](/reference/real-time-events) for the full event catalog.
+
+## Git Strategy
+
+**Single task execution:** shallow clone (`git clone --depth 1`) into a fresh directory per task. Branch: `openlinear/{taskId}`.
+
+**Batch execution:** bare clone as the main repo, git worktrees for each task or one combined worktree. Parallel and Queue branches are merged into a batch branch via temporary worktrees with `--no-ff` merges. Combined mode commits directly on the batch branch from one shared session.
+
+## CI/CD and Distribution
+
+Release builds are triggered by pushing a `v*` tag. The GitHub Actions workflow builds:
+- Linux AppImage and .deb desktop bundles (Tauri, bundling `openlinear-sidecar` and OpenCode binaries)
+- The sidecar binary for each supported target triple
+
+| Format | Platform |
+|--------|----------|
+| AppImage | Linux |
+| .deb | Linux (Debian/Ubuntu) |
+| AUR | Arch Linux (`openlinear-bin`) |
+| npm CLI | Any (`@openlinear/openlinear-cli`) |
+| GitHub Releases | Any (tag-triggered CI) |

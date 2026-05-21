@@ -1,97 +1,37 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "OpenLinear"
+description: "AI project management that actually writes the code. Drag tasks on a kanban board, click execute, get a pull request."
 ---
 
-## Setting up
+OpenLinear is a project management tool that uses AI agents to execute tasks. Create a task describing what you want built, click Execute, and OpenLinear runs an OpenCode agent that clones your repository, writes the code, and opens a pull request.
 
-Get your documentation site up and running in minutes.
+## What OpenLinear does
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Task Execution" icon="play" href="/features/task-execution">
+    Run any task through an AI agent. OpenLinear clones your repo, creates a branch, and opens a PR.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Batch Execution" icon="layer-group" href="/features/batch-execution">
+    Run multiple tasks in parallel or queue mode with conflict resolution.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Brainstorm" icon="brain" href="/features/brainstorm">
+    Generate a task list from a natural language goal using AI.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="MCP Integration" icon="plug" href="/integrations/mcp">
+    Connect AI agents directly to OpenLinear via the MCP server to create projects and issues programmatically.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick links
 
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="Getting Started" icon="rocket" href="/features/getting-started">
+    Install, configure, and run your first task.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Architecture" icon="building" href="/reference/architecture">
+    How the monorepo, sidecar, and cloud API fit together.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="API Reference" icon="code" href="/reference/api">
+    Full REST API documentation.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+</CardGroup>

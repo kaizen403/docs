@@ -1,0 +1,89 @@
+---
+title: "GitHub Integration"
+description: "Authentication, repository management, and pull request creation via GitHub OAuth"
+icon: "github"
+---
+
+OpenLinear integrates with GitHub for authentication, repository management, and pull request creation.
+
+## Authentication
+
+### GitHub OAuth
+
+1. User clicks "Sign in with GitHub" in the sidebar
+2. `GET /api/auth/github` redirects to GitHub's authorization page
+3. User authorizes the app (scopes: `read:user user:email repo`)
+4. GitHub redirects to `/api/auth/github/callback` with a code
+5. The API exchanges the code for an access token
+6. Creates or updates the user record in the database
+7. Returns a JWT (7-day expiry) via redirect to the frontend
+
+GitHub OAuth is required for importing private repos, cloning, and PR creation. Email/password login is also supported for basic task management via `POST /api/auth/register` and `POST /api/auth/login`.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_CLIENT_ID` | OAuth app client ID |
+| `GITHUB_CLIENT_SECRET` | OAuth app client secret |
+| `GITHUB_REDIRECT_URI` | Callback URL (default: `http://localhost:3001/api/auth/github/callback`) |
+
+### Auth Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/auth/github` | Start OAuth flow |
+| `GET` | `/api/auth/github/callback` | Handle OAuth callback |
+| `GET` | `/api/auth/me` | Get current user (Bearer token) |
+| `POST` | `/api/auth/logout` | Logout (client clears token) |
+
+## Repository Management
+
+### With GitHub auth (private + public repos)
+
+| Step | Endpoint | Description |
+|------|----------|-------------|
+| 1 | `GET /api/repos/github` | Fetch all repos from GitHub (paginated, sorted by updated) |
+| 2 | `POST /api/repos/import` | Import a repo into OpenLinear |
+| 3 | `POST /api/repos/:id/activate` | Set as active repository |
+| — | `GET /api/repos/active` | Get current active repository |
+| — | `GET /api/repos` | List all imported repositories |
+
+### Without GitHub auth (public repos only)
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/repos/url` | Add a public repo by URL |
+| `POST /api/repos/:id/activate/public` | Set active public repository |
+| `GET /api/repos/active/public` | Get active public repository |
+| `GET /api/repos/public` | List all public repositories |
+
+`POST /api/repos/url` accepts any of:
+- `https://github.com/owner/repo`
+- `git@github.com:owner/repo`
+- `owner/repo`
+
+Private repositories are rejected.
+
+### Rate Limits
+
+| Access | Limit |
+|--------|-------|
+| Unauthenticated | 60 requests/hour |
+| With `GITHUB_TOKEN` env variable | 5,000 requests/hour |
+
+## Pull Request Creation
+
+When task execution finishes with changes:
+
+1. If the user has a GitHub access token:
+   - `POST https://api.github.com/repos/:owner/:repo/pulls` with the task title and branch
+   - PR body: task title and description
+   - Returns the PR URL stored on the task
+2. If no token or the API call fails:
+   - Returns a compare URL: `https://github.com/:owner/:repo/compare/:base...:branch`
+   - User can manually create a PR from this link
+
+### PR Refresh
+
+`POST /api/tasks/:id/refresh-pr` — checks whether a PR was created for a task that only has a compare URL. If GitHub returns a PR for that branch, the task's `prUrl` is updated to the real PR URL. For batch tasks, all tasks in the same batch sharing the old compare URL are updated.

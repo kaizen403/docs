@@ -1,0 +1,322 @@
+---
+title: "API Reference"
+description: "Full REST API for OpenLinear — tasks, projects, teams, PATs, and more"
+icon: "code"
+---
+
+Base URL: `http://localhost:3001` (configurable via `API_PORT`)
+
+All request/response bodies are JSON. Authentication uses Bearer JWT tokens or personal access tokens where noted.
+
+---
+
+## Health
+
+### `GET /health`
+
+Returns server status and connected SSE client count.
+
+```json
+{ "status": "ok", "timestamp": "...", "clients": 2 }
+```
+
+---
+
+## Authentication
+
+GitHub OAuth is the primary login method. After login, all downstream AI provider keys are managed by OpenCode, not OpenLinear.
+
+### `GET /api/auth/github`
+Redirects to GitHub OAuth authorization page.
+
+### `GET /api/auth/github/callback`
+Handles OAuth callback. Exchanges code for token, creates/updates user, redirects to frontend with JWT.
+
+### `GET /api/auth/me`
+**Auth: required.** Returns the authenticated user (excludes the GitHub access token).
+
+### `POST /api/auth/logout`
+Returns `{ success: true }`. Client should clear the stored JWT.
+
+### Personal Access Tokens
+
+PATs are intended for MCP clients and API integrations. The API stores only token hashes and returns the raw token once at creation time.
+
+#### `GET /api/pats`
+**Auth: required.** List PAT metadata for the authenticated user.
+
+#### `POST /api/pats`
+**Auth: required.** Create a PAT.
+
+```json
+{
+  "name": "MCP client",
+  "scopes": ["*"],
+  "expiresAt": "2026-12-31T23:59:59.000Z"
+}
+```
+
+`scopes` and `expiresAt` are optional. When omitted, scopes default to `["*"]`. The response includes the raw token once — copy it before closing.
+
+#### `DELETE /api/pats/:id`
+**Auth: required.** Revoke a PAT owned by the authenticated user.
+
+---
+
+## Tasks
+
+### `GET /api/tasks`
+List non-archived tasks. Optional query params: `teamId`, `projectId`.
+
+### `POST /api/tasks`
+Create a task.
+
+```json
+{
+  "title": "Fix login button",
+  "description": "Optional longer description",
+  "priority": "high",
+  "dueDate": "2025-03-15T17:00:00.000Z",
+  "labelIds": ["uuid-1"],
+  "teamId": "uuid",
+  "projectId": "uuid"
+}
+```
+
+A task must have `teamId` or `projectId` (or both).
+
+### `POST /api/tasks/bulk`
+**Auth: required.** Create up to 100 tasks in one team-backed project. PAT requests must satisfy the `tasks:write` scope check.
+
+```json
+{
+  "projectId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "tasks": [
+    {
+      "title": "Add MCP docs",
+      "description": "Document PAT auth and plan creation",
+      "priority": "medium",
+      "labelIds": ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]
+    },
+    {
+      "title": "Add MCP smoke test"
+    }
+  ]
+}
+```
+
+Response separates created tasks from per-item failures:
+
+```json
+{
+  "created": [{ "id": "...", "title": "Add MCP docs", "identifier": "DOC-42" }],
+  "failed": [{ "index": 1, "error": "Invalid labelIds: ..." }]
+}
+```
+
+Invalid label IDs fail only those inputs. Schema validation errors reject the full request.
+
+### `GET /api/tasks/:id`
+Get a single task with labels, team, and project.
+
+### `PATCH /api/tasks/:id`
+Update a task. Any field from create, plus `status`. Setting `labelIds` replaces all labels.
+
+### `DELETE /api/tasks/:id`
+Archives the task (soft delete). Broadcasts `task:deleted`.
+
+### `GET /api/tasks/archived`
+List archived tasks.
+
+### `DELETE /api/tasks/archived`
+Permanently delete all archived tasks.
+
+### `DELETE /api/tasks/archived/:id`
+Permanently delete a single archived task.
+
+---
+
+## Labels
+
+### `GET /api/labels`
+List all labels ordered by priority (descending).
+
+### `POST /api/labels`
+Create a label. Body: `{ "name": "bug", "color": "#ff5733", "priority": 0 }`
+
+### `PATCH /api/labels/:id`
+Update a label's name, color, or priority.
+
+### `DELETE /api/labels/:id`
+Delete a label.
+
+### `POST /api/labels/tasks/:id/labels`
+Assign a label to a task. Body: `{ "labelId": "uuid" }`
+
+### `DELETE /api/labels/tasks/:id/labels/:labelId`
+Remove a label from a task.
+
+---
+
+## Settings
+
+### `GET /api/settings`
+Get execution settings. Auto-creates defaults if not present.
+
+### `PATCH /api/settings`
+Update settings. Body can include any combination of: `parallelLimit`, `maxBatchSize`, `queueAutoApprove`, `stopOnFailure`, `conflictBehavior`.
+
+---
+
+## Teams
+
+### `GET /api/teams`
+List all teams with member counts.
+
+### `POST /api/teams`
+Create a team. Creator becomes owner.
+
+### `GET /api/teams/:id`
+Get team with members and project associations.
+
+### `PATCH /api/teams/:id`
+Update team.
+
+### `DELETE /api/teams/:id`
+Delete team with cascading cleanup.
+
+### `POST /api/teams/join`
+**Auth: required.** Join a team using an invite code.
+
+Body: `{ "inviteCode": "string" }`
+
+### `GET /api/teams/:id/members`
+List team members.
+
+### `POST /api/teams/:id/members`
+**Auth: required.** Add a member by email or userId.
+
+### `DELETE /api/teams/:id/members/:userId`
+Remove a member.
+
+---
+
+## Projects
+
+### `GET /api/projects`
+List all projects with teams and task counts.
+
+### `POST /api/projects`
+**Auth: required.** Create a project.
+
+### `GET /api/projects/:id`
+Get project with team associations.
+
+### `PATCH /api/projects/:id`
+**Auth: required.** Update project.
+
+### `DELETE /api/projects/:id`
+**Auth: required.** Delete project (unlinks tasks, removes team associations).
+
+---
+
+## Inbox
+
+### `GET /api/inbox`
+List completed and cancelled tasks with labels, team, and project.
+
+### `GET /api/inbox/count`
+Get count of unread inbox items.
+
+### `PATCH /api/inbox/read/:id`
+Mark a single inbox item as read.
+
+### `PATCH /api/inbox/read-all`
+Mark all inbox items as read.
+
+---
+
+## Repositories
+
+### `POST /api/repos/url`
+Connect a public repository by URL. No auth required.
+
+Body: `{ "url": "https://github.com/owner/repo" }`
+
+### `GET /api/repos/github`
+**Auth: required.** Fetch user's GitHub repos.
+
+### `POST /api/repos/import`
+**Auth: required.** Import a GitHub repo.
+
+### `POST /api/repos/:id/activate`
+**Auth: required.** Set as active repository.
+
+### `GET /api/repos/active`
+**Auth: required.** Get user's active repository.
+
+---
+
+## Events (SSE)
+
+### `GET /api/events`
+SSE endpoint. Optional query param: `clientId`. See [Real-Time Events](/reference/real-time-events) for the full event catalog.
+
+---
+
+## Execution (Sidecar)
+
+These endpoints are served by the local sidecar (`apps/sidecar`), not the cloud API.
+
+### `POST /api/tasks/:id/execute`
+Start AI execution for a task.
+
+### `POST /api/tasks/:id/cancel`
+Cancel a running task.
+
+### `GET /api/tasks/:id/running`
+Check if a task is currently executing. Returns `{ "running": true/false }`.
+
+### `GET /api/tasks/:id/logs`
+Get execution logs (in-memory for active, persisted for completed).
+
+### `POST /api/tasks/:id/refresh-pr`
+Check if a PR exists for a compare URL branch and update the task's `prUrl`.
+
+### `POST /api/batches`
+Create and start a batch.
+
+Body: `{ "taskIds": ["uuid-1", ...], "mode": "parallel" | "queue" | "combined" }`
+
+### `GET /api/batches/:id`
+Get batch status with per-task progress breakdown.
+
+### `POST /api/batches/:id/cancel`
+Cancel entire batch.
+
+### `POST /api/batches/:id/approve`
+Approve the next queued task in queue mode (when auto-approve is off).
+
+---
+
+## OpenCode (Sidecar)
+
+### `GET /api/opencode/status`
+Returns OpenCode system state.
+
+### `GET /api/opencode/providers`
+**Auth: required.** List available LLM providers.
+
+### `GET /api/opencode/providers/auth`
+**Auth: required.** Get provider authentication status.
+
+### `POST /api/opencode/auth`
+**Auth: required.** Set an API key for a provider.
+
+Body: `{ "providerId": "anthropic", "apiKey": "sk-..." }`
+
+### `POST /api/opencode/auth/oauth/authorize`
+**Auth: required.** Start an OAuth flow for a provider.
+
+### `POST /api/opencode/auth/oauth/callback`
+**Auth: required.** Complete an OAuth flow.

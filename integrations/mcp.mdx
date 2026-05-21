@@ -1,0 +1,132 @@
+---
+title: "MCP Integration"
+description: "Connect any MCP-compatible AI agent to OpenLinear — create projects, phases, and tasks from a natural language plan"
+icon: "plug"
+---
+
+OpenLinear exposes an MCP server from `apps/mcp`. The server runs as a stateless Cloudflare Worker, accepts Streamable HTTP requests at `/mcp`, and forwards each tool call to the OpenLinear API with the caller's personal access token (PAT).
+
+Use the MCP server when an AI agent needs to read workspace or project context, create project structure, or turn a multi-phase implementation plan into OpenLinear issues.
+
+## Connection
+
+### Local development
+
+Run the API and worker locally:
+
+```bash
+pnpm --filter @openlinear/api dev
+pnpm --filter @openlinear/mcp dev
+```
+
+Set the API target for the local worker in `apps/mcp/.dev.vars`:
+
+```bash
+OPENLINEAR_API_URL=http://localhost:3001
+```
+
+Connect an MCP client to `http://localhost:8787/mcp`.
+
+### Production
+
+```json
+{
+  "mcpServers": {
+    "openlinear": {
+      "url": "https://mcp.openlinear.tech/mcp",
+      "headers": {
+        "Authorization": "Bearer ol_pat_0123456789abcdef0123456789abcdef"
+      }
+    }
+  }
+}
+```
+
+## Transport
+
+The worker implements stateless Streamable HTTP. Each request creates a fresh transport — no session state survives across requests.
+
+| Method | Path | Behavior |
+|--------|------|----------|
+| `POST` | `/mcp` | Handles MCP requests |
+| `GET` | `/mcp` | Returns 405 (SSE sessions not supported) |
+| `DELETE` | `/mcp` | Returns 204 |
+
+## Authentication
+
+Create a PAT from **Settings → API Keys** before connecting a client. OpenLinear shows the token once, stores only its hash, and lists token metadata after creation.
+
+Send the token on every MCP request:
+
+```
+Authorization: Bearer ol_pat_0123456789abcdef0123456789abcdef
+```
+
+The worker only accepts PATs in the `ol_pat_<32 lowercase hex characters>` format. The API rejects revoked or expired PATs when the worker forwards a tool call. Wildcard `*` scope tokens satisfy all scope checks including the `tasks:write` requirement on bulk task creation.
+
+## Tools
+
+| Tool | Purpose |
+|------|---------|
+| `openlinear_list_workspaces` | List workspaces visible to the authenticated user |
+| `openlinear_list_projects` | List accessible projects, optionally filtered by workspace |
+| `openlinear_create_project` | Create a project and optionally attach one team |
+| `openlinear_get_project` | Read one project by ID |
+| `openlinear_create_phase` | Create a team label following the phase naming convention |
+| `openlinear_create_issue` | Create one issue in a project |
+| `openlinear_update_issue` | Update issue fields such as title, status, labels, or due date |
+| `openlinear_bulk_create_plan` | Create a project, phase labels, and tasks from one plan payload |
+
+## Bulk Plan Flow
+
+`openlinear_bulk_create_plan` is the preferred tool for turning a multi-phase plan into OpenLinear issues. Call it once with the full plan:
+
+```json
+{
+  "teamId": "671dc3cb-c8dc-4922-b355-bc842ed1010b",
+  "project": {
+    "name": "Auth Overhaul",
+    "description": "Migrate session auth to JWT + PAT"
+  },
+  "phases": [
+    {
+      "name": "Foundation",
+      "tasks": [
+        { "title": "Add PAT model to schema", "priority": "high" },
+        { "title": "Write migration", "priority": "high" }
+      ]
+    },
+    {
+      "name": "API Layer",
+      "tasks": [
+        { "title": "Implement /api/pats CRUD", "priority": "medium" },
+        { "title": "Add PAT auth middleware", "priority": "high" }
+      ]
+    }
+  ]
+}
+```
+
+The tool:
+1. Creates a project with status `planned`
+2. Creates one phase label per phase (when `teamId` is provided)
+3. Calls the bulk task API once per phase to create tasks in the new project
+4. Returns the project ID, project key, created task IDs, and per-phase failures
+
+<Warning>
+Pass `teamId` for the complete workflow. The bulk task API requires a project linked to a team, and phase labels are team labels. Without a team-backed project, phase task creation will error.
+</Warning>
+
+Bulk creation can be partially successful. Inspect the tool result for `failed` entries and `error` fields on phases before treating the plan as complete.
+
+## Related API Surfaces
+
+The MCP worker depends on these cloud API capabilities:
+
+- PAT management at `/api/pats`
+- Project and workspace reads plus project creation
+- Label creation for phase labels
+- Single-task create/update endpoints
+- `POST /api/tasks/bulk` for plan expansion
+
+See [API Reference](/reference/api) for the PAT and bulk task contracts.
