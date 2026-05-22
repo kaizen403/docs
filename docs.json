@@ -112,6 +112,11 @@
       "vscode"
     ]
   },
+  "seo": {
+    "metatags": {
+      "canonical": "https://docs.openlinear.tech"
+    }
+  },
   "footer": {
     "socials": {
       "github": "https://github.com/kaizen403/openlinear"
