@@ -69,12 +69,16 @@ The worker only accepts PATs in the `ol_pat_<32 lowercase hex characters>` forma
 | Tool | Purpose |
 |------|---------|
 | `openlinear_list_workspaces` | List workspaces visible to the authenticated user |
-| `openlinear_list_projects` | List accessible projects, optionally filtered by workspace |
+| `openlinear_list_projects` | List accessible projects, optionally filtered by workspace or team |
 | `openlinear_create_project` | Create a project and optionally attach one team |
 | `openlinear_get_project` | Read one project by ID |
-| `openlinear_create_phase` | Create a team label following the phase naming convention |
+| `openlinear_list_teams` | List teams in a workspace or project |
+| `openlinear_create_team` | Create a team inside a project |
+| `openlinear_list_labels` | List project-scoped labels, including phase labels |
+| `openlinear_create_label` | Create a project-scoped label |
+| `openlinear_create_phase` | Create a project-scoped phase label following the phase naming convention |
 | `openlinear_create_issue` | Create one issue in a project |
-| `openlinear_update_issue` | Update issue fields such as title, status, labels, or due date |
+| `openlinear_update_issue` | Update issue fields such as title, status, labels, team, or due date |
 | `openlinear_bulk_create_plan` | Create a project, phase labels, and tasks from one plan payload |
 
 ## Bulk Plan Flow
@@ -83,10 +87,11 @@ The worker only accepts PATs in the `ol_pat_<32 lowercase hex characters>` forma
 
 ```json
 {
-  "teamId": "671dc3cb-c8dc-4922-b355-bc842ed1010b",
+  "workspaceId": "workspace-aeb35ae41ef68718e82d59f45ad0c447",
   "project": {
     "name": "Auth Overhaul",
-    "description": "Migrate session auth to JWT + PAT"
+    "description": "Migrate session auth to JWT + PAT",
+    "key": "AO"
   },
   "phases": [
     {
@@ -109,13 +114,14 @@ The worker only accepts PATs in the `ol_pat_<32 lowercase hex characters>` forma
 
 The tool:
 1. Creates a project with status `planned`
-2. Creates one phase label per phase (when `teamId` is provided)
-3. Calls the bulk task API once per phase to create tasks in the new project
-4. Returns the project ID, project key, created task IDs, and per-phase failures
+2. If no `teamId` is provided, resolves an existing team from the project or auto-creates a default team
+3. Creates one project-scoped phase label per phase
+4. Calls the bulk task API once per phase to create tasks in the new project
+5. Returns the project ID, project key, created task IDs, and per-phase failures
 
-<Warning>
-Pass `teamId` for the complete workflow. The bulk task API requires a project linked to a team, and phase labels are team labels. Without a team-backed project, phase task creation will error.
-</Warning>
+<Info>
+`teamId` is optional. When omitted, the tool automatically resolves or creates a team so issue numbering and task creation always succeed.
+</Info>
 
 Bulk creation can be partially successful. Inspect the tool result for `failed` entries and `error` fields on phases before treating the plan as complete.
 
@@ -125,7 +131,8 @@ The MCP worker depends on these cloud API capabilities:
 
 - PAT management at `/api/pats`
 - Project and workspace reads plus project creation
-- Label creation for phase labels
+- Team listing and creation
+- Project-scoped label creation for phase labels
 - Single-task create/update endpoints
 - `POST /api/tasks/bulk` for plan expansion
 
